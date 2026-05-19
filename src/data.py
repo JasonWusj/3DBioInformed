@@ -130,6 +130,28 @@ def random_flip_3d(image, target):
     return image, target
 
 
+def build_case_patch(
+    data_dir,
+    case_id,
+    patch_size=(128, 128, 128),
+    modalities=None,
+    crop_mode="gt_tumor_center",
+    normalize_clip=(-5.0, 5.0),
+):
+    image, seg, spacing_hwd = load_case_arrays(Path(data_dir) / case_id, modalities, seg_required=True)
+    image = normalize_nonzero(image, normalize_clip)
+
+    if crop_mode != "none":
+        size_hwd = (patch_size[1], patch_size[2], patch_size[0])
+        center = choose_crop_center(image, seg, crop_mode)
+        image = crop_or_pad_spatial(image, center, size_hwd, pad_value=0)
+        seg = crop_or_pad_spatial(seg, center, size_hwd, pad_value=0)
+
+    image = to_cdhw(image)
+    target = targets_to_cdhw(make_region_targets(seg))
+    return image, target, spacing_hwd_to_dhw(spacing_hwd)
+
+
 class BraTS3DPatchDataset(Dataset):
     def __init__(
         self,
@@ -155,16 +177,52 @@ class BraTS3DPatchDataset(Dataset):
 
     def __getitem__(self, idx):
         case_id = self.case_ids[idx]
-        image, seg, _ = load_case_arrays(self.data_dir / case_id, self.modalities, seg_required=True)
-        image = normalize_nonzero(image, self.normalize_clip)
+        image, target, _ = build_case_patch(
+            data_dir=self.data_dir,
+            case_id=case_id,
+            patch_size=self.patch_size,
+            modalities=self.modalities,
+            crop_mode=self.crop_mode,
+            normalize_clip=self.normalize_clip,
+        )
 
-        center = choose_crop_center(image, seg, self.crop_mode)
-        image = crop_or_pad_spatial(image, center, self.size_hwd, pad_value=0)
-        seg = crop_or_pad_spatial(seg, center, self.size_hwd, pad_value=0)
+        if self.augment:
+            image, target = random_flip_3d(image, target)
 
-        image = to_cdhw(image)
-        target = targets_to_cdhw(make_region_targets(seg))
+        return torch.from_numpy(image), torch.from_numpy(target)
 
+
+class BraTS3DPreprocessedPatchDataset(Dataset):
+    def __init__(self, preprocessed_dir, case_ids, augment=False, mmap=True):
+        self.preprocessed_dir = Path(preprocessed_dir)
+        self.case_ids = list(case_ids)
+        self.augment = augment
+        self.mmap_mode = "r" if mmap else None
+
+        metadata_path = self.preprocessed_dir / "metadata.npy"
+        if not metadata_path.exists():
+            raise FileNotFoundError(
+                f"Missing preprocessed metadata: {metadata_path}. "
+                "Run src/preprocess3d.py before training with use_preprocessed=true."
+            )
+
+        metadata = np.load(metadata_path, allow_pickle=True).item()
+        self.records = metadata["cases"]
+        missing = [case_id for case_id in self.case_ids if case_id not in self.records]
+        if missing:
+            raise FileNotFoundError(f"Missing preprocessed cases: {missing[:5]} (total {len(missing)})")
+
+    def __len__(self):
+        return len(self.case_ids)
+
+    def __getitem__(self, idx):
+        case_id = self.case_ids[idx]
+        record = self.records[case_id]
+        image = np.load(self.preprocessed_dir / record["image"], mmap_mode=self.mmap_mode)
+        target = np.load(self.preprocessed_dir / record["target"], mmap_mode=self.mmap_mode)
+
+        image = np.array(image, dtype=np.float32, copy=True)
+        target = np.array(target, dtype=np.float32, copy=True)
         if self.augment:
             image, target = random_flip_3d(image, target)
 
@@ -179,20 +237,17 @@ def load_case_volume(
     crop_mode="gt_tumor_center",
     patch_size=(128, 128, 128),
 ):
-    image, seg, spacing_hwd = load_case_arrays(Path(data_dir) / case_id, modalities, seg_required=True)
-    image = normalize_nonzero(image, normalize_clip)
-
-    if crop_mode != "none":
-        size_hwd = (patch_size[1], patch_size[2], patch_size[0])
-        center = choose_crop_center(image, seg, crop_mode)
-        image = crop_or_pad_spatial(image, center, size_hwd, pad_value=0)
-        seg = crop_or_pad_spatial(seg, center, size_hwd, pad_value=0)
-
-    image = to_cdhw(image)
-    target = targets_to_cdhw(make_region_targets(seg))
+    image, target, spacing = build_case_patch(
+        data_dir=data_dir,
+        case_id=case_id,
+        patch_size=patch_size,
+        modalities=modalities,
+        crop_mode=crop_mode,
+        normalize_clip=normalize_clip,
+    )
     return {
         "case_id": case_id,
         "image": torch.from_numpy(image),
         "target": torch.from_numpy(target),
-        "spacing": spacing_hwd_to_dhw(spacing_hwd),
+        "spacing": spacing,
     }

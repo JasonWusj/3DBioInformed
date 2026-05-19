@@ -26,6 +26,7 @@
   src/
     __init__.py
     data.py
+    preprocess3d.py
     model.py
     losses.py
     train3d.py
@@ -38,6 +39,7 @@
 - `configs/paper3d_unet.yaml`：论文主实验配置。
 - `configs/baseline3d_unet.yaml`：标准 3D UNet 对照实验配置，不使用 PDE/BC 生物物理约束。
 - `src/data.py`：BraTS 3D NIfTI 读取、z-score 标准化、肿瘤中心裁剪、TC/WT/ET 区域 mask 构造。
+- `src/preprocess3d.py`：一次性把 NIfTI 转成离线预处理后的 3D `.npy` patch，减少训练时 CPU I/O 和解压开销。
 - `src/model.py`：3D UNet、3D SIREN 密度估计器和完整分割模型。
 - `src/losses.py`：Dice loss、3D Fisher-KPP PDE loss、六个面的 Neumann 边界条件 loss。
 - `src/train3d.py`：训练入口，保存训练日志、最佳模型、最终模型和周期 checkpoint。
@@ -118,6 +120,33 @@ smoke_test passed
 
 ## 训练
 
+### 推荐：先生成 3D `.npy` patch
+
+直接从 `.nii.gz` 训练会在每个 epoch 重复做解压、整例 z-score 和裁剪，CPU 很容易成为瓶颈。默认配置已启用：
+
+```yaml
+data:
+  use_preprocessed: true
+  preprocessed_dir: ./data/preprocessed3d_patches
+```
+
+因此首次训练前建议先运行离线预处理：
+
+```bash
+python src/preprocess3d.py --config configs/paper3d_unet.yaml
+```
+
+该步骤不会改变训练样本内容，只是把同样的归一化、肿瘤中心裁剪和 TC/WT/ET mask 构造提前保存成 `.npy`。训练阶段仍会在线执行随机三轴翻转增强。
+
+如果你确实想每次从原始 NIfTI 读取，把配置改成：
+
+```yaml
+data:
+  use_preprocessed: false
+```
+
+### 单独训练
+
 训练论文方法：
 
 ```bash
@@ -142,7 +171,7 @@ Linux 下也可以一键启动两组对比训练：
 bash run_train_compare.sh
 ```
 
-默认按顺序运行 baseline 和论文方法，避免单张 GPU 上两个 3D 训练任务同时占满显存。多 GPU 或确认资源足够时可以并行启动：
+默认会先运行一次 `src/preprocess3d.py` 准备 `.npy` patch，然后按顺序运行 baseline 和论文方法，避免单张 GPU 上两个 3D 训练任务同时占满显存。多 GPU 或确认资源足够时可以并行启动：
 
 ```bash
 bash run_train_compare.sh parallel
@@ -153,6 +182,28 @@ bash run_train_compare.sh parallel
 ```bash
 PYTHON_BIN=/path/to/python bash run_train_compare.sh
 ```
+
+如果 `.npy` patch 已经准备好，想跳过预处理：
+
+```bash
+AUTO_PREPROCESS=0 bash run_train_compare.sh
+```
+
+### 数据加载加速配置
+
+默认 DataLoader 配置会启用 worker 预取和持久 worker：
+
+```yaml
+data:
+  num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
+```
+
+这些设置不改变实验样本和模型计算，只减少 GPU 等 CPU 数据的时间。若 CPU 内存紧张，可以把 `prefetch_factor` 降到 `2`，或减少 `num_workers`。
+
+预处理后的 `.npy` 大约需要几十 GB 磁盘空间，取决于病例数和 patch 大小。当前实现为了不改变实验数值，图像保存为 `float32`，标签保存为二值 `uint8`。
 
 默认配置见：
 

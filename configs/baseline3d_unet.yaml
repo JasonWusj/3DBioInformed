@@ -3,10 +3,16 @@ output_dir: ./outputs/baseline3d_unet
 
 data:
   data_dir: ./data/BraTS2023
+  preprocessed_dir: ./data/preprocessed3d_patches
+  use_preprocessed: true
+  mmap_preprocessed: true
   train_ratio: 0.7
   val_ratio: 0.1
   test_ratio: 0.2
   num_workers: 4
+  pin_memory: true
+  persistent_workers: true
+  prefetch_factor: 4
   patch_size: [128, 128, 128]  # PyTorch order: D, H, W
   crop_mode: gt_tumor_center
   modalities: ["-t1n", "-t1c", "-t2w", "-t2f"]

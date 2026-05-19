@@ -6,12 +6,22 @@ cd "$(dirname "${BASH_SOURCE[0]}")"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 MODE="${1:-sequential}"
 LOG_DIR="${LOG_DIR:-logs}"
+AUTO_PREPROCESS="${AUTO_PREPROCESS:-1}"
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
 
 BASELINE_CONFIG="configs/baseline3d_unet.yaml"
 BIO_CONFIG="configs/paper3d_unet.yaml"
 
 mkdir -p "${LOG_DIR}"
+
+run_preprocess() {
+  if [[ "${AUTO_PREPROCESS}" == "1" ]]; then
+    echo "[preprocess] prepare preprocessed 3D .npy patches"
+    "${PYTHON_BIN}" src/preprocess3d.py --config "${BIO_CONFIG}" 2>&1 | tee "${LOG_DIR}/preprocess3d_${TIMESTAMP}.log"
+  else
+    echo "[preprocess] skipped because AUTO_PREPROCESS=${AUTO_PREPROCESS}"
+  fi
+}
 
 run_baseline() {
   echo "[baseline] start: ${BASELINE_CONFIG}"
@@ -25,10 +35,12 @@ run_biophysics() {
 
 case "${MODE}" in
   sequential)
+    run_preprocess
     run_baseline
     run_biophysics
     ;;
   parallel)
+    run_preprocess
     run_baseline &
     BASELINE_PID=$!
     run_biophysics &
@@ -42,6 +54,7 @@ case "${MODE}" in
     echo "Environment variables:"
     echo "  PYTHON_BIN=/path/to/python  Python executable, default: python"
     echo "  LOG_DIR=logs                Log directory, default: logs"
+    echo "  AUTO_PREPROCESS=0           Skip .npy patch preprocessing"
     exit 2
     ;;
 esac

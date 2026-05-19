@@ -12,7 +12,7 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.data import BraTS3DPatchDataset, get_case_ids, split_cases
+from src.data import BraTS3DPreprocessedPatchDataset, BraTS3DPatchDataset, get_case_ids, split_cases
 from src.losses import BiophysicsInformedLoss3D, DiceLoss
 from src.model import BiophysicsSegModel3D, StandardSegModel3D
 
@@ -60,16 +60,39 @@ def build_datasets(cfg):
         seed=cfg["seed"],
     )
 
-    common = {
-        "data_dir": data_cfg["data_dir"],
-        "patch_size": data_cfg["patch_size"],
-        "modalities": data_cfg["modalities"],
-        "crop_mode": data_cfg["crop_mode"],
-        "normalize_clip": data_cfg["normalize_clip"],
-    }
-    train_dataset = BraTS3DPatchDataset(case_ids=train_ids, augment=data_cfg.get("augment", True), **common)
-    val_dataset = BraTS3DPatchDataset(case_ids=val_ids, augment=False, **common)
+    if data_cfg.get("use_preprocessed", False):
+        common = {
+            "preprocessed_dir": data_cfg["preprocessed_dir"],
+            "mmap": data_cfg.get("mmap_preprocessed", True),
+        }
+        train_dataset = BraTS3DPreprocessedPatchDataset(case_ids=train_ids, augment=data_cfg.get("augment", True), **common)
+        val_dataset = BraTS3DPreprocessedPatchDataset(case_ids=val_ids, augment=False, **common)
+    else:
+        common = {
+            "data_dir": data_cfg["data_dir"],
+            "patch_size": data_cfg["patch_size"],
+            "modalities": data_cfg["modalities"],
+            "crop_mode": data_cfg["crop_mode"],
+            "normalize_clip": data_cfg["normalize_clip"],
+        }
+        train_dataset = BraTS3DPatchDataset(case_ids=train_ids, augment=data_cfg.get("augment", True), **common)
+        val_dataset = BraTS3DPatchDataset(case_ids=val_ids, augment=False, **common)
     return train_dataset, val_dataset, train_ids, val_ids, test_ids
+
+
+def dataloader_kwargs(cfg, device, shuffle):
+    data_cfg = cfg["data"]
+    num_workers = int(data_cfg["num_workers"])
+    kwargs = {
+        "batch_size": cfg["training"]["batch_size"],
+        "shuffle": shuffle,
+        "num_workers": num_workers,
+        "pin_memory": device.type == "cuda" and data_cfg.get("pin_memory", True),
+    }
+    if num_workers > 0:
+        kwargs["persistent_workers"] = data_cfg.get("persistent_workers", True)
+        kwargs["prefetch_factor"] = int(data_cfg.get("prefetch_factor", 2))
+    return kwargs
 
 
 def dice_per_region(logits, target, threshold=0.5):
@@ -186,17 +209,11 @@ def main():
 
     train_loader = DataLoader(
         train_dataset,
-        batch_size=cfg["training"]["batch_size"],
-        shuffle=True,
-        num_workers=cfg["data"]["num_workers"],
-        pin_memory=device.type == "cuda",
+        **dataloader_kwargs(cfg, device, shuffle=True),
     )
     val_loader = DataLoader(
         val_dataset,
-        batch_size=cfg["training"]["batch_size"],
-        shuffle=False,
-        num_workers=cfg["data"]["num_workers"],
-        pin_memory=device.type == "cuda",
+        **dataloader_kwargs(cfg, device, shuffle=False),
     )
 
     if cfg["loss"].get("use_biophysics", True):
