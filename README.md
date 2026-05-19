@@ -18,6 +18,7 @@
 3d_bioinformed/
   README.md
   requirement.txt
+  requirements.txt
   smoke_test.py
   configs/
     paper3d_unet.yaml
@@ -74,11 +75,19 @@ data/BraTS2023/
 
 ## 环境
 
-本工程只列出依赖，不自动创建环境：
+本工程只列出依赖，不自动创建环境。推荐使用标准文件名 `requirements.txt` 安装：
+
+```bash
+pip install -r requirements.txt
+```
+
+仓库中也保留了 `requirement.txt` 作为兼容文件，因此下面命令同样可用：
 
 ```bash
 pip install -r requirement.txt
 ```
+
+不要运行 `pip install requirement.txt`，那会把 `requirement.txt` 当成一个包名。也不要在 zsh/bash 中直接逐行执行 `torch>=2.1.0` 这类内容，`>` 会被 shell 当成重定向符号。
 
 论文报告的主要环境和训练设置：
 
