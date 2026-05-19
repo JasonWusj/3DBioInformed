@@ -14,6 +14,17 @@ def get_case_ids(data_dir):
     return sorted(d.name for d in data_path.iterdir() if d.is_dir() and d.name.startswith("BraTS"))
 
 
+def get_case_ids_from_preprocessed(preprocessed_dir):
+    metadata_path = Path(preprocessed_dir) / "metadata.npy"
+    if not metadata_path.exists():
+        raise FileNotFoundError(
+            f"Missing preprocessed metadata: {metadata_path}. "
+            "Run src/preprocess3d.py while the raw BraTS data is still available."
+        )
+    metadata = np.load(metadata_path, allow_pickle=True).item()
+    return sorted(metadata["cases"].keys())
+
+
 def split_cases(case_ids, train_ratio=0.7, val_ratio=0.1, seed=42):
     rng = np.random.default_rng(seed)
     indices = rng.permutation(len(case_ids))

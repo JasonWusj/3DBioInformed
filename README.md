@@ -138,6 +138,8 @@ python src/preprocess3d.py --config configs/paper3d_unet.yaml
 
 该步骤不会改变训练样本内容，只是把同样的归一化、肿瘤中心裁剪和 TC/WT/ET mask 构造提前保存成 `.npy`。训练阶段仍会在线执行随机三轴翻转增强。
 
+预处理完成后，训练不再依赖原始 `data/BraTS2023` 目录；病例列表会从 `data/preprocessed3d_patches/metadata.npy` 读取。
+
 如果你确实想每次从原始 NIfTI 读取，把配置改成：
 
 ```yaml

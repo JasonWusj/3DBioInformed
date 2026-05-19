@@ -12,7 +12,13 @@ from torch.utils.data import DataLoader
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.data import BraTS3DPreprocessedPatchDataset, BraTS3DPatchDataset, get_case_ids, split_cases
+from src.data import (
+    BraTS3DPreprocessedPatchDataset,
+    BraTS3DPatchDataset,
+    get_case_ids,
+    get_case_ids_from_preprocessed,
+    split_cases,
+)
 from src.losses import BiophysicsInformedLoss3D, DiceLoss
 from src.model import BiophysicsSegModel3D, StandardSegModel3D
 
@@ -52,7 +58,11 @@ def build_optimizer(cfg, model):
 
 def build_datasets(cfg):
     data_cfg = cfg["data"]
-    case_ids = get_case_ids(data_cfg["data_dir"])
+    use_preprocessed = data_cfg.get("use_preprocessed", False)
+    if use_preprocessed:
+        case_ids = get_case_ids_from_preprocessed(data_cfg["preprocessed_dir"])
+    else:
+        case_ids = get_case_ids(data_cfg["data_dir"])
     train_ids, val_ids, test_ids = split_cases(
         case_ids,
         train_ratio=data_cfg["train_ratio"],
@@ -60,7 +70,7 @@ def build_datasets(cfg):
         seed=cfg["seed"],
     )
 
-    if data_cfg.get("use_preprocessed", False):
+    if use_preprocessed:
         common = {
             "preprocessed_dir": data_cfg["preprocessed_dir"],
             "mmap": data_cfg.get("mmap_preprocessed", True),
