@@ -19,7 +19,7 @@ from src.data import (
     get_case_ids_from_preprocessed,
     split_cases,
 )
-from src.losses import BiophysicsInformedLoss3D, DiceLoss
+from src.losses import BiophysicsInformedLoss3D, DiceLoss, DiceWithBCELoss, FocalLoss, JaccardLoss
 from src.model import BiophysicsSegModel3D, StandardSegModel3D
 
 
@@ -69,6 +69,12 @@ def build_datasets(cfg):
         val_ratio=data_cfg["val_ratio"],
         seed=data_cfg.get("split_seed", cfg["seed"]),
     )
+    train_fraction = float(data_cfg.get("train_fraction", 1.0))
+    if not 0.0 < train_fraction <= 1.0:
+        raise ValueError(f"data.train_fraction must be in (0, 1], got {train_fraction}")
+    if train_fraction < 1.0:
+        n_train = max(1, int(len(train_ids) * train_fraction))
+        train_ids = train_ids[:n_train]
 
     if use_preprocessed:
         common = {
@@ -88,6 +94,19 @@ def build_datasets(cfg):
         train_dataset = BraTS3DPatchDataset(case_ids=train_ids, augment=data_cfg.get("augment", True), **common)
         val_dataset = BraTS3DPatchDataset(case_ids=val_ids, augment=False, **common)
     return train_dataset, val_dataset, train_ids, val_ids, test_ids
+
+
+def build_segmentation_loss(name):
+    name = name.lower()
+    if name == "dice":
+        return DiceLoss()
+    if name == "dice_ce":
+        return DiceWithBCELoss()
+    if name == "focal":
+        return FocalLoss()
+    if name == "jaccard":
+        return JaccardLoss()
+    raise ValueError(f"Unsupported segmentation loss: {name}")
 
 
 def dataloader_kwargs(cfg, device, shuffle):
@@ -126,7 +145,7 @@ def dice_per_region(logits, target, threshold=0.5):
 
 def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp, cfg, epoch):
     model.train()
-    losses = {"dice": 0.0, "pde": 0.0, "bc": 0.0, "total": 0.0}
+    losses = {"seg": 0.0, "pde": 0.0, "bc": 0.0, "total": 0.0}
     num_batches = 0
     start = time.time()
     use_biophysics = cfg["loss"].get("use_biophysics", True)
@@ -144,7 +163,7 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
                 logits = model(images, return_density=False)
                 loss = criterion(logits, targets)
                 loss_dict = {
-                    "dice": float(loss.detach().cpu()),
+                    "seg": float(loss.detach().cpu()),
                     "pde": 0.0,
                     "bc": 0.0,
                     "total": float(loss.detach().cpu()),
@@ -169,7 +188,7 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
         if (batch_idx + 1) % interval == 0 or (batch_idx + 1) == len(loader):
             log(
                 f"[Epoch {epoch + 1} Batch {batch_idx + 1}/{len(loader)}] "
-                f"total={loss_dict['total']:.4f} dice={loss_dict['dice']:.4f} "
+                f"total={loss_dict['total']:.4f} seg={loss_dict['seg']:.4f} "
                 f"pde={loss_dict['pde']:.6f} bc={loss_dict['bc']:.6f}"
             )
 
@@ -237,6 +256,7 @@ def main():
     scaler = GradScaler(enabled=use_amp)
 
     loss_cfg = cfg["loss"]
+    segmentation_loss = build_segmentation_loss(loss_cfg.get("segmentation_loss", "dice"))
     if loss_cfg.get("use_biophysics", True):
         criterion = BiophysicsInformedLoss3D(
             lambda_pde=loss_cfg["lambda_pde"],
@@ -244,9 +264,10 @@ def main():
             d_range=loss_cfg["d_range"],
             rho_range=loss_cfg["rho_range"],
             sample_parameters=loss_cfg.get("sample_parameters", "voxel"),
+            segmentation_loss=segmentation_loss,
         ).to(device)
     else:
-        criterion = DiceLoss().to(device)
+        criterion = segmentation_loss.to(device)
     dice_loss = DiceLoss().to(device)
 
     output_dir = Path(cfg["output_dir"])
@@ -258,7 +279,7 @@ def main():
     best_dice = -1.0
     with open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(["epoch", "train_total", "train_dice", "train_pde", "train_bc", "val_dice_loss", "val_mean_dice", "lr", "epoch_time_s"])
+        writer.writerow(["epoch", "train_total", "train_seg_loss", "train_pde", "train_bc", "val_dice_loss", "val_mean_dice", "lr", "epoch_time_s"])
 
         for epoch in range(cfg["training"]["epochs"]):
             train_losses, epoch_time = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp, cfg, epoch)
@@ -269,7 +290,7 @@ def main():
             writer.writerow([
                 epoch + 1,
                 f"{train_losses['total']:.6f}",
-                f"{train_losses['dice']:.6f}",
+                f"{train_losses['seg']:.6f}",
                 f"{train_losses['pde']:.6f}",
                 f"{train_losses['bc']:.6f}",
                 f"{val_dice_loss:.6f}",

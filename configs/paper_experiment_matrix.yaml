@@ -97,24 +97,107 @@ main_table:
     paper_dice: [92.00, 91.02, 87.02]
     paper_hd95: [3.88, 6.80, 10.73]
 
+unet_ablations:
+  - name: relu_density_estimator
+    ablation: activation_and_boundary
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_relu.yaml
+  - name: sine_without_boundary_condition
+    ablation: activation_and_boundary
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_no_bc.yaml
+  - name: relu_without_boundary_condition
+    ablation: activation_and_boundary
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_relu_no_bc.yaml
+  - name: two_modalities_t1n_t2f
+    ablation: modality_subset
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_modalities_t1n_t2f.yaml
+  - name: baseline_two_modalities_t1n_t2f
+    ablation: modality_subset
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_modalities_t1n_t2f.yaml
+  - name: three_modalities_t1n_t2w_t2f
+    ablation: modality_subset
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_modalities_t1n_t2w_t2f.yaml
+  - name: baseline_three_modalities_t1n_t2w_t2f
+    ablation: modality_subset
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_modalities_t1n_t2w_t2f.yaml
+  - name: quarter_training_set
+    ablation: training_set_fraction
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_train_fraction_25.yaml
+  - name: baseline_quarter_training_set
+    ablation: training_set_fraction
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_train_fraction_25.yaml
+  - name: half_training_set
+    ablation: training_set_fraction
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_train_fraction_50.yaml
+  - name: baseline_half_training_set
+    ablation: training_set_fraction
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_train_fraction_50.yaml
+  - name: three_quarter_training_set
+    ablation: training_set_fraction
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_train_fraction_75.yaml
+  - name: baseline_three_quarter_training_set
+    ablation: training_set_fraction
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_train_fraction_75.yaml
+  - name: dice_ce_loss
+    ablation: segmentation_loss
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_loss_dice_ce.yaml
+  - name: baseline_dice_ce_loss
+    ablation: segmentation_loss
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_loss_dice_ce.yaml
+  - name: focal_loss
+    ablation: segmentation_loss
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_loss_focal.yaml
+  - name: baseline_focal_loss
+    ablation: segmentation_loss
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_loss_focal.yaml
+  - name: jaccard_loss
+    ablation: segmentation_loss
+    status: implemented
+    config: configs/unet_ablations/unet_biophy_loss_jaccard.yaml
+  - name: baseline_jaccard_loss
+    ablation: segmentation_loss
+    status: implemented
+    config: configs/unet_ablations/unet_baseline_loss_jaccard.yaml
+
 ablations:
   activation_and_boundary:
-    status: missing
+    status: unet_configs_implemented_results_pending
+    pending: full long-training result aggregation
     levels:
       activation: [sine, relu]
       boundary_condition: [enabled, disabled]
   modality_subset:
-    status: missing
+    status: unet_configs_implemented_results_pending
+    pending: full long-training result aggregation
     levels:
       modalities:
         - ["-t1n", "-t2f"]
         - ["-t1n", "-t2w", "-t2f"]
         - ["-t1n", "-t1c", "-t2w", "-t2f"]
   training_set_fraction:
-    status: missing
+    status: unet_configs_implemented_results_pending
+    pending: full long-training result aggregation
     levels:
-      train_fraction: [0.25, 0.5, 0.75, 1.0]
+      train_fraction: [0.25, 0.5, 0.75]
+      full_training_set_configs: [configs/paper3d_unet.yaml, configs/baseline3d_unet.yaml]
   segmentation_loss:
-    status: missing
+    status: unet_configs_implemented_results_pending
+    pending: full long-training result aggregation
     levels:
       loss: [dice, dice_ce, focal, jaccard]

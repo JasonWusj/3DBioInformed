@@ -45,6 +45,10 @@ class PaperExperimentMatrixTest(unittest.TestCase):
             },
             set(matrix["ablations"]),
         )
+        self.assertTrue(all(
+            item["status"] == "unet_configs_implemented_results_pending"
+            for item in matrix["ablations"].values()
+        ))
 
     def test_matrix_keeps_unimplemented_items_explicit(self):
         with open(MATRIX_PATH, "r", encoding="utf-8") as f:

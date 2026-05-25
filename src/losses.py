@@ -21,6 +21,47 @@ class DiceLoss(nn.Module):
         return 1.0 - dice.mean()
 
 
+class DiceWithBCELoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.dice = DiceLoss()
+        self.bce = nn.BCEWithLogitsLoss()
+
+    def forward(self, logits, target):
+        return self.dice(logits, target) + self.bce(logits[:, 1:], target[:, 1:])
+
+
+class FocalLoss(nn.Module):
+    def __init__(self, alpha=0.25, gamma=2.0):
+        super().__init__()
+        self.alpha = alpha
+        self.gamma = gamma
+
+    def forward(self, logits, target):
+        logits = logits[:, 1:]
+        target = target[:, 1:]
+        bce = F.binary_cross_entropy_with_logits(logits, target, reduction="none")
+        probs = torch.sigmoid(logits)
+        pt = torch.where(target > 0.5, probs, 1.0 - probs)
+        alpha_t = torch.where(target > 0.5, self.alpha, 1.0 - self.alpha)
+        return (alpha_t * (1.0 - pt).pow(self.gamma) * bce).mean()
+
+
+class JaccardLoss(nn.Module):
+    def __init__(self, smooth=1.0):
+        super().__init__()
+        self.smooth = smooth
+
+    def forward(self, logits, target):
+        probs = torch.sigmoid(logits)[:, 1:]
+        target = target[:, 1:]
+        dims = tuple(range(2, logits.ndim))
+        intersection = (probs * target).sum(dim=dims)
+        union = probs.sum(dim=dims) + target.sum(dim=dims) - intersection
+        score = (intersection + self.smooth) / (union + self.smooth)
+        return 1.0 - score.mean()
+
+
 class PDELoss3D(nn.Module):
     def __init__(self, d_range=(0.02, 1.5), rho_range=(0.002, 0.2), sample_parameters="voxel"):
         super().__init__()
@@ -96,21 +137,22 @@ class BiophysicsInformedLoss3D(nn.Module):
         d_range=(0.02, 1.5),
         rho_range=(0.002, 0.2),
         sample_parameters="voxel",
+        segmentation_loss=None,
     ):
         super().__init__()
-        self.dice_loss = DiceLoss()
+        self.segmentation_loss = segmentation_loss if segmentation_loss is not None else DiceLoss()
         self.pde_loss = PDELoss3D(d_range, rho_range, sample_parameters)
         self.bc_loss = BoundaryConditionLoss3D()
         self.lambda_pde = lambda_pde
         self.lambda_bc = lambda_bc
 
     def forward(self, logits, target, u_hat, t_tensor):
-        dice = self.dice_loss(logits, target)
+        seg = self.segmentation_loss(logits, target)
         pde = self.pde_loss(u_hat, t_tensor)
         bc = self.bc_loss(u_hat)
-        total = dice + self.lambda_pde * pde + self.lambda_bc * bc
+        total = seg + self.lambda_pde * pde + self.lambda_bc * bc
         return total, {
-            "dice": float(dice.detach().cpu()),
+            "seg": float(seg.detach().cpu()),
             "pde": float(pde.detach().cpu()),
             "bc": float(bc.detach().cpu()),
             "total": float(total.detach().cpu()),

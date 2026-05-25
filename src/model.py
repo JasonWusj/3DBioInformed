@@ -86,14 +86,22 @@ class SirenLayer(nn.Module):
 
 
 class DensityEstimator3D(nn.Module):
-    def __init__(self, in_channels, hidden_dim=256, num_layers=3, feature_size=(16, 16, 16)):
+    def __init__(self, in_channels, hidden_dim=256, num_layers=3, feature_size=(16, 16, 16), activation="sine"):
         super().__init__()
         self.feature_size = tuple(int(v) for v in feature_size)
         self.adapt_pool = nn.AdaptiveAvgPool3d(self.feature_size)
 
-        layers = [SirenLayer(in_channels + 1, hidden_dim, is_first=True)]
-        for _ in range(num_layers - 1):
-            layers.append(SirenLayer(hidden_dim, hidden_dim))
+        activation = activation.lower()
+        if activation == "sine":
+            layers = [SirenLayer(in_channels + 1, hidden_dim, is_first=True)]
+            for _ in range(num_layers - 1):
+                layers.append(SirenLayer(hidden_dim, hidden_dim))
+        elif activation == "relu":
+            layers = [nn.Linear(in_channels + 1, hidden_dim), nn.ReLU(inplace=True)]
+            for _ in range(num_layers - 1):
+                layers.extend([nn.Linear(hidden_dim, hidden_dim), nn.ReLU(inplace=True)])
+        else:
+            raise ValueError(f"Unsupported density estimator activation: {activation}")
         self.siren = nn.Sequential(*layers)
         self.output_layer = nn.Linear(hidden_dim, 1)
 
@@ -134,6 +142,7 @@ class BiophysicsSegModel3D(nn.Module):
             hidden_dim=model_cfg["density_estimator"]["hidden_dim"],
             num_layers=model_cfg["density_estimator"]["num_layers"],
             feature_size=model_cfg["density_estimator"]["feature_size"],
+            activation=model_cfg["density_estimator"].get("activation", "sine"),
         )
 
     def forward(self, x, return_density=True):

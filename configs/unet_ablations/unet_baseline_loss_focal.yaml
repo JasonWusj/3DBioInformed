@@ -1,5 +1,5 @@
 seed: 42
-output_dir: ./outputs/baseline3d_unet
+output_dir: ./outputs/unet_baseline_loss_focal
 
 data:
   data_dir: ./data/BraTS2023
@@ -14,7 +14,7 @@ data:
   pin_memory: true
   persistent_workers: true
   prefetch_factor: 4
-  patch_size: [128, 128, 128]  # PyTorch order: D, H, W
+  patch_size: [128, 128, 128]
   crop_mode: gt_tumor_center
   modalities: ["-t1n", "-t1c", "-t2w", "-t2f"]
   num_channels: 4
@@ -25,7 +25,7 @@ data:
 model:
   backbone: unet3d
   features: [32, 64, 128]
-  density_estimator:  # baseline 不使用；保留字段便于和 paper3d_unet.yaml 对齐
+  density_estimator:
     hidden_dim: 256
     num_layers: 3
     feature_size: [16, 16, 16]
@@ -45,7 +45,7 @@ training:
 
 loss:
   use_biophysics: false
-  segmentation_loss: dice
+  segmentation_loss: focal
   lambda_pde: 0.0
   lambda_bc: 0.0
   d_range: [0.02, 1.5]

@@ -29,6 +29,7 @@ model:
     hidden_dim: 256
     num_layers: 3
     feature_size: [16, 16, 16]
+    activation: sine
 
 training:
   epochs: 175
@@ -44,6 +45,7 @@ training:
 
 loss:
   use_biophysics: true
+  segmentation_loss: dice
   lambda_pde: 1.0
   lambda_bc: 1.0
   d_range: [0.02, 1.5]

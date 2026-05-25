@@ -2,7 +2,7 @@
 
 本目录是论文 **Biophysics Informed Pathological Regularisation for Brain Tumour Segmentation** 的 3D 复现工程骨架，独立于已有的 2D 复现代码。
 
-当前实现覆盖论文复现规划中的第 1-8 步：3D BraTS 数据读取、肿瘤中心裁剪、3D UNet、SIREN 肿瘤细胞密度估计器、3D PDE/边界条件正则、训练、滑动窗口推理、TTA 和 case-level Dice/HD95 评估。第 9 步多模型实验矩阵和第 10 步数值验收标准暂未实现。
+当前实现覆盖论文复现规划中的第 1-8 步：3D BraTS 数据读取、肿瘤中心裁剪、3D UNet、SIREN 肿瘤细胞密度估计器、3D PDE/边界条件正则、训练、滑动窗口推理、TTA 和 case-level Dice/HD95 评估。第 9 步已记录完整论文实验矩阵，并先补齐 UNet 范围内的主实验与 Fig. 2 消融配置；第 10 步数值验收标准暂未实现。
 
 ## 复现假设
 
@@ -24,6 +24,8 @@
   configs/
     paper3d_unet.yaml
     baseline3d_unet.yaml
+    paper_experiment_matrix.yaml
+    unet_ablations/
   src/
     __init__.py
     data.py
@@ -41,6 +43,7 @@
 - `configs/paper3d_unet.yaml`：论文主实验配置。
 - `configs/baseline3d_unet.yaml`：标准 3D UNet 对照实验配置，不使用 PDE/BC 生物物理约束。
 - `configs/paper_experiment_matrix.yaml`：论文 Table 1 和 Fig. 2 消融的机器可读复现实验矩阵，明确已实现与缺失项。
+- `configs/unet_ablations/`：UNet 范围内的 activation、BC、模态、训练集比例和 segmentation loss 消融配置，包含 Fig. 2 中需要的 with/without biophysics 对照。
 - `src/data.py`：BraTS 3D NIfTI 读取、z-score 标准化、肿瘤中心裁剪、TC/WT/ET 区域 mask 构造。
 - `src/preprocess3d.py`：一次性把 NIfTI 转成离线预处理后的 3D `.npy` patch，减少训练时 CPU I/O 和解压开销。
 - `src/model.py`：3D UNet、3D SIREN 密度估计器和完整分割模型。
@@ -119,7 +122,7 @@ python smoke_test.py
 
 ```text
 smoke_test passed
-{'dice': ..., 'pde': ..., 'bc': ..., 'total': ...}
+{'seg': ..., 'pde': ..., 'bc': ..., 'total': ...}
 ```
 
 ## 训练
@@ -223,6 +226,30 @@ configs/paper3d_unet.yaml
 configs/paper_experiment_matrix.yaml
 ```
 
+UNet 消融配置见：
+
+```text
+configs/unet_ablations/
+```
+
+按当前 UNet 矩阵顺序执行主实验和消融：
+
+```bash
+python run_unet_experiment_matrix.py
+```
+
+只检查将要执行的命令顺序，不启动训练：
+
+```bash
+python run_unet_experiment_matrix.py --dry-run --skip-preprocess
+```
+
+Linux 环境也保留了等价的 shell 入口：
+
+```bash
+bash run_unet_experiment_matrix.sh
+```
+
 训练输出保存在 `output_dir` 指定目录，默认是：
 
 ```text
@@ -286,11 +313,12 @@ ET subset TC subset WT
 6. 3D Laplacian PDE loss 和六面 Neumann BC loss
 7. 论文风格训练循环：AMP、Ranger、cosine、batch size 1、175 epochs
 8. 滑动窗口推理、TTA 和 case-level Dice/HD95
+9. UNet 范围内的 Sine/ReLU、with/without BC、模态子集、训练集比例和 segmentation loss 消融配置；Fig. 2 中需要对比 biophysics 与 baseline 的项已分别配置
 
 暂未实现：
 
 - R2-UNet、nn-UNet、UNETR、SegResNet、SegResNetVAE 的模型/配置实现
-- Sine/ReLU、with/without BC、缺失模态、训练集比例、不同 segmentation loss 的系统消融执行
+- UNet 消融的完整长训练执行和数值汇总
 - 与论文表格数值接近程度的验收实验
 
 ## 重要注意事项

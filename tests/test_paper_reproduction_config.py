@@ -34,6 +34,7 @@ class PaperReproductionConfigTest(unittest.TestCase):
             self.assertEqual(cfg["inference"]["eval_crop_mode"], "none")
 
         self.assertTrue(paper["loss"]["use_biophysics"])
+        self.assertEqual(paper["loss"]["segmentation_loss"], "dice")
         self.assertEqual(paper["loss"]["lambda_pde"], 1.0)
         self.assertEqual(paper["loss"]["lambda_bc"], 1.0)
         self.assertNotIn("lambda_density", paper["loss"])
@@ -42,6 +43,7 @@ class PaperReproductionConfigTest(unittest.TestCase):
         self.assertEqual(paper["loss"]["sample_parameters"], "voxel")
 
         self.assertFalse(baseline["loss"]["use_biophysics"])
+        self.assertEqual(baseline["loss"]["segmentation_loss"], "dice")
         self.assertEqual(baseline["loss"]["lambda_pde"], 0.0)
         self.assertEqual(baseline["loss"]["lambda_bc"], 0.0)
 
@@ -52,8 +54,8 @@ class PaperReproductionConfigTest(unittest.TestCase):
         self.assertNotIn("DiceBCELoss", train_code)
         self.assertNotIn("lambda_density", train_code)
         self.assertNotIn("lambda_density", loss_code)
-        self.assertIn("criterion = DiceLoss().to(device)", train_code)
-        self.assertIn("dice_loss = DiceLoss().to(device)", train_code)
+        self.assertIn("build_segmentation_loss", train_code)
+        self.assertIn('loss_cfg.get("segmentation_loss", "dice")', train_code)
 
     def test_batch_eval_defaults_to_final_model_for_paper_testing(self):
         script = (ROOT / "run_five_train_eval.sh").read_text(encoding="utf-8")
