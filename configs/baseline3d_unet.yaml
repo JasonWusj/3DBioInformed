@@ -6,6 +6,7 @@ data:
   preprocessed_dir: ./data/preprocessed3d_patches
   use_preprocessed: true
   mmap_preprocessed: true
+  split_seed: 42
   train_ratio: 0.7
   val_ratio: 0.1
   test_ratio: 0.2
@@ -55,4 +56,4 @@ inference:
   overlap: 0.5
   threshold: 0.5
   tta_flips: true
-  eval_crop_mode: gt_tumor_center
+  eval_crop_mode: none

@@ -115,9 +115,9 @@ def crop_or_pad_spatial(array, center_hwd, size_hwd, pad_value=0):
 
 def make_region_targets(seg):
     background = seg == 0
-    tc = (seg == 1) | (seg == 4)
+    tc = (seg == 1) | (seg == 3)
     wt = seg > 0
-    et = seg == 4
+    et = seg == 3
     return np.stack([background, tc, wt, et], axis=0).astype(np.float32)
 
 

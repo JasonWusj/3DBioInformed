@@ -116,7 +116,7 @@ def evaluate_case(model, cfg, case_id, device):
         case_id=case_id,
         modalities=data_cfg["modalities"],
         normalize_clip=data_cfg["normalize_clip"],
-        crop_mode=infer_cfg.get("eval_crop_mode", data_cfg.get("crop_mode", "gt_tumor_center")),
+        crop_mode=infer_cfg.get("eval_crop_mode", "none"),
         patch_size=infer_cfg["roi_size"],
     )
     logits = predict_logits(model, case["image"], cfg, device)
@@ -169,7 +169,7 @@ def main():
         case_ids,
         train_ratio=cfg["data"]["train_ratio"],
         val_ratio=cfg["data"]["val_ratio"],
-        seed=cfg["seed"],
+        seed=cfg["data"].get("split_seed", cfg["seed"]),
     )
     eval_ids = val_ids if args.split == "val" else test_ids
 

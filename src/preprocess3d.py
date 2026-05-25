@@ -2,13 +2,14 @@ import argparse
 import sys
 from pathlib import Path
 
+import nibabel as nib
 import numpy as np
 import yaml
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.data import build_case_patch, get_case_ids
+from src.data import build_case_patch, find_nifti, get_case_ids, spacing_hwd_to_dhw
 
 
 def main():
@@ -34,8 +35,9 @@ def main():
         image_path = output_dir / image_name
         target_path = output_dir / target_name
 
+        spacing = None
         if args.overwrite or not image_path.exists() or not target_path.exists():
-            image, target, _ = build_case_patch(
+            image, target, spacing = build_case_patch(
                 data_dir=data_cfg["data_dir"],
                 case_id=case_id,
                 patch_size=data_cfg["patch_size"],
@@ -45,9 +47,15 @@ def main():
             )
             np.save(image_path, image.astype(np.float32, copy=False))
             np.save(target_path, target.astype(np.uint8, copy=False))
+        if spacing is None:
+            case_path = Path(data_cfg["data_dir"]) / case_id
+            nii = nib.load(str(find_nifti(case_path, data_cfg["modalities"][0])))
+            spacing_hwd = tuple(float(v) for v in nii.header.get_zooms()[:3])
+            spacing = spacing_hwd_to_dhw(spacing_hwd)
         records[case_id] = {
             "image": image_name,
             "target": target_name,
+            "spacing": list(spacing),
         }
 
     np.save(

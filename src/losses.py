@@ -4,12 +4,16 @@ import torch.nn.functional as F
 
 
 class DiceLoss(nn.Module):
-    def __init__(self, smooth=1.0):
+    def __init__(self, smooth=1.0, skip_bg=True):
         super().__init__()
         self.smooth = smooth
+        self.skip_bg = skip_bg
 
     def forward(self, logits, target):
         probs = torch.sigmoid(logits)
+        if self.skip_bg:
+            probs = probs[:, 1:]
+            target = target[:, 1:]
         dims = tuple(range(2, logits.ndim))
         intersection = (probs * target).sum(dim=dims)
         denominator = probs.sum(dim=dims) + target.sum(dim=dims)

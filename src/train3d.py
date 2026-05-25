@@ -67,7 +67,7 @@ def build_datasets(cfg):
         case_ids,
         train_ratio=data_cfg["train_ratio"],
         val_ratio=data_cfg["val_ratio"],
-        seed=cfg["seed"],
+        seed=data_cfg.get("split_seed", cfg["seed"]),
     )
 
     if use_preprocessed:

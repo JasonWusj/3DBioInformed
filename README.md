@@ -9,7 +9,8 @@
 - 主复现目标是论文中的 `3D UNet + biophysics-informed regularisation` 主实验。
 - BraTS 输出区域按多标签实现为 `background`、`TC`、`WT`、`ET`。这是因为 TC/WT/ET 是嵌套区域，不是互斥 softmax 类别。
 - 配置中的 `patch_size` 和 `roi_size` 采用 PyTorch 3D 顺序：`[D, H, W]`。
-- `gt_tumor_center` 裁剪用于贴近论文中 “centred on the tumour” 的描述；它依赖标签定位裁剪中心，适合复现实验，但真实无标签推理时需要换成前景中心、脑区中心或检测模型提供的中心。
+- 训练和离线预处理使用 `gt_tumor_center` 裁剪来贴近论文中 “centred on the tumour” 的描述；raw 评估默认使用完整体积加滑动窗口，不使用标签中心裁剪。
+- `data.split_seed` 固定病例级 7:1:2 划分；多 run 只偏移训练随机种子，避免不同 run 使用不同 test split。
 - 论文 appendix 和官方源码不在本仓库中，因此未公开的增强细节只做了随机三轴翻转。
 
 ## 目录结构
@@ -31,6 +32,7 @@
     losses.py
     train3d.py
     train3d_baseline.py
+    evaluate.py
     infer_eval3d.py
 ```
 
@@ -44,7 +46,8 @@
 - `src/losses.py`：Dice loss、3D Fisher-KPP PDE loss、六个面的 Neumann 边界条件 loss。
 - `src/train3d.py`：训练入口，保存训练日志、最佳模型、最终模型和周期 checkpoint。
 - `src/train3d_baseline.py`：标准 3D UNet baseline 训练入口，只使用 Dice loss。
-- `src/infer_eval3d.py`：滑动窗口推理、flip TTA、case-level Dice/HD95 评估。
+- `src/evaluate.py`：推荐评估入口，支持预处理 patch 评估和 raw NIfTI 滑动窗口 + flip TTA 评估，输出 case-level Dice/HD95。
+- `src/infer_eval3d.py`：旧评估入口，保留用于兼容。
 - `smoke_test.py`：随机张量快速验证，不依赖真实数据。
 
 ## 数据格式
@@ -70,9 +73,9 @@ data/BraTS2023/
 
 标签按 BraTS 原始标注转换为区域 mask：
 
-- `TC = label 1 + label 4`
-- `WT = label 1 + label 2 + label 4`
-- `ET = label 4`
+- `TC = label 1 + label 3`
+- `WT = label 1 + label 2 + label 3`
+- `ET = label 3`
 - `background = label 0`
 
 ## 环境
@@ -234,25 +237,26 @@ outputs/paper3d_unet/
 评估论文方法：
 
 ```bash
-python src/infer_eval3d.py --config configs/paper3d_unet.yaml --checkpoint outputs/paper3d_unet/final_model.pth
+python src/evaluate.py --config configs/paper3d_unet.yaml --checkpoint outputs/paper3d_unet/final_model.pth --split test --mode auto
 ```
 
 评估标准 baseline：
 
 ```bash
-python src/infer_eval3d.py --config configs/baseline3d_unet.yaml --checkpoint outputs/baseline3d_unet/final_model.pth
+python src/evaluate.py --config configs/baseline3d_unet.yaml --checkpoint outputs/baseline3d_unet/final_model.pth --split test --mode auto
 ```
 
 默认评估 test split。也可以评估 validation split：
 
 ```bash
-python src/infer_eval3d.py --config configs/paper3d_unet.yaml --split val
+python src/evaluate.py --config configs/paper3d_unet.yaml --split val
 ```
 
 评估内容：
 
 - 使用 MONAI `sliding_window_inference`
 - 使用三轴 flip TTA
+- raw NIfTI 模式默认在完整体积上评估；预处理模式评估离线保存的 `128x128x128` patch
 - 输出 TC、WT、ET 的 case-level Dice
 - 输出 TC、WT、ET 的 HD95，单位为毫米
 - 保存逐 case 指标到 `test_metrics.csv` 或 `val_metrics.csv`
