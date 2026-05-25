@@ -40,6 +40,7 @@
 
 - `configs/paper3d_unet.yaml`：论文主实验配置。
 - `configs/baseline3d_unet.yaml`：标准 3D UNet 对照实验配置，不使用 PDE/BC 生物物理约束。
+- `configs/paper_experiment_matrix.yaml`：论文 Table 1 和 Fig. 2 消融的机器可读复现实验矩阵，明确已实现与缺失项。
 - `src/data.py`：BraTS 3D NIfTI 读取、z-score 标准化、肿瘤中心裁剪、TC/WT/ET 区域 mask 构造。
 - `src/preprocess3d.py`：一次性把 NIfTI 转成离线预处理后的 3D `.npy` patch，减少训练时 CPU I/O 和解压开销。
 - `src/model.py`：3D UNet、3D SIREN 密度估计器和完整分割模型。
@@ -216,6 +217,12 @@ data:
 configs/paper3d_unet.yaml
 ```
 
+完整论文实验矩阵见：
+
+```text
+configs/paper_experiment_matrix.yaml
+```
+
 训练输出保存在 `output_dir` 指定目录，默认是：
 
 ```text
@@ -282,8 +289,8 @@ ET subset TC subset WT
 
 暂未实现：
 
-- R2-UNet、nn-UNet、UNETR、SegResNet、SegResNetVAE 的完整实验矩阵
-- Sine/ReLU、with/without BC、缺失模态、训练集比例、不同 segmentation loss 的系统消融
+- R2-UNet、nn-UNet、UNETR、SegResNet、SegResNetVAE 的模型/配置实现
+- Sine/ReLU、with/without BC、缺失模态、训练集比例、不同 segmentation loss 的系统消融执行
 - 与论文表格数值接近程度的验收实验
 
 ## 重要注意事项

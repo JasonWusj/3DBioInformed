@@ -1,0 +1,120 @@
+paper:
+  title: Biophysics Informed Pathological Regularisation for Brain Tumour Segmentation
+  source: arXiv-2403.09136v3/section/experiments.tex
+
+common_setup:
+  dataset: BraTS 2023 official training partition
+  split: "7:1:2 train/val/test"
+  split_seed: 42
+  patch_size: [128, 128, 128]
+  modalities: ["-t1n", "-t1c", "-t2w", "-t2f"]
+  epochs: 175
+  batch_size: 1
+  optimizer: ranger
+  learning_rate: 0.0003
+  scheduler: cosine
+  amp: true
+  final_model_for_test: true
+  metrics: [dice, hd95]
+  regions: [TC, WT, ET]
+
+main_table:
+  - method: UNet
+    backbone: UNet
+    variant: baseline
+    status: implemented
+    config: configs/baseline3d_unet.yaml
+    paper_dice: [90.68, 92.29, 87.28]
+    paper_hd95: [6.16, 7.85, 10.99]
+  - method: UNet (Biophy)
+    backbone: UNet
+    variant: biophysics
+    status: implemented
+    config: configs/paper3d_unet.yaml
+    paper_dice: [91.83, 92.34, 88.26]
+    paper_hd95: [3.99, 6.94, 7.47]
+  - method: R2-UNet
+    backbone: R2-UNet
+    variant: baseline
+    status: missing
+    missing: model backbone and config
+    paper_dice: [90.75, 91.86, 87.29]
+    paper_hd95: [5.82, 7.34, 11.24]
+  - method: R2-UNet (Biophy)
+    backbone: R2-UNet
+    variant: biophysics
+    status: missing
+    missing: model backbone, density feature hook, and config
+    paper_dice: [91.02, 91.91, 87.53]
+    paper_hd95: [4.83, 7.14, 9.25]
+  - method: nn-UNet
+    backbone: nn-UNet
+    variant: baseline
+    status: missing
+    missing: nn-UNet backbone/config parity
+    paper_dice: [91.24, 92.48, 87.38]
+    paper_hd95: [4.44, 6.95, 10.85]
+  - method: nn-UNet (Biophy)
+    backbone: nn-UNet
+    variant: biophysics
+    status: missing
+    missing: nn-UNet backbone, density feature hook, and config
+    paper_dice: [91.70, 92.69, 87.55]
+    paper_hd95: [4.00, 6.51, 10.39]
+  - method: UNet-TR
+    backbone: UNETR
+    variant: baseline
+    status: missing
+    missing: transformer backbone/config
+    paper_dice: [88.20, 90.73, 85.41]
+    paper_hd95: [6.75, 11.36, 12.62]
+  - method: UNet-TR (Biophy)
+    backbone: UNETR
+    variant: biophysics
+    status: missing
+    missing: transformer backbone, density feature hook, and config
+    paper_dice: [89.06, 91.10, 85.96]
+    paper_hd95: [5.97, 8.98, 11.12]
+  - method: SegResNet
+    backbone: SegResNet
+    variant: baseline
+    status: missing
+    missing: SegResNet backbone/config
+    paper_dice: [91.96, 91.99, 87.28]
+    paper_hd95: [3.91, 7.53, 10.80]
+  - method: SegResNet (Biophy)
+    backbone: SegResNet
+    variant: biophysics
+    status: missing
+    missing: SegResNet backbone, density feature hook, and config
+    paper_dice: [92.13, 92.19, 87.46]
+    paper_hd95: [3.62, 6.68, 10.56]
+  - method: SegResNet-VAE
+    backbone: SegResNetVAE
+    variant: baseline
+    status: missing
+    missing: SegResNetVAE backbone/config
+    paper_dice: [92.00, 91.02, 87.02]
+    paper_hd95: [3.88, 6.80, 10.73]
+
+ablations:
+  activation_and_boundary:
+    status: missing
+    levels:
+      activation: [sine, relu]
+      boundary_condition: [enabled, disabled]
+  modality_subset:
+    status: missing
+    levels:
+      modalities:
+        - ["-t1n", "-t2f"]
+        - ["-t1n", "-t2w", "-t2f"]
+        - ["-t1n", "-t1c", "-t2w", "-t2f"]
+  training_set_fraction:
+    status: missing
+    levels:
+      train_fraction: [0.25, 0.5, 0.75, 1.0]
+  segmentation_loss:
+    status: missing
+    levels:
+      loss: [dice, dice_ce, focal, jaccard]
