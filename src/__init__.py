@@ -1,6 +1,7 @@
 from .model import BiophysicsSegModel3D, DensityEstimator3D, GaussianSegRefinementHead3D, StandardSegModel3D, UNet3D
 from .losses import (
     BiophysicsInformedLoss3D,
+    DensityCouplingLoss,
     DiceLoss,
     GaussianRefinementRegularization,
     HierarchyConsistencyLoss,
@@ -14,6 +15,7 @@ __all__ = [
     "DensityEstimator3D",
     "GaussianSegRefinementHead3D",
     "BiophysicsInformedLoss3D",
+    "DensityCouplingLoss",
     "DiceLoss",
     "GaussianRefinementRegularization",
     "HierarchyConsistencyLoss",

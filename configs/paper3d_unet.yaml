@@ -48,6 +48,8 @@ loss:
   segmentation_loss: dice
   lambda_pde: 1.0
   lambda_bc: 1.0
+  lambda_density: 0.1
+  density_region_channel: 2  # WT channel; couples u_hat to the whole-tumour mask
   d_range: [0.02, 1.5]
   rho_range: [0.002, 0.2]
   sample_parameters: voxel

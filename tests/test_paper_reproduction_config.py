@@ -37,7 +37,8 @@ class PaperReproductionConfigTest(unittest.TestCase):
         self.assertEqual(paper["loss"]["segmentation_loss"], "dice")
         self.assertEqual(paper["loss"]["lambda_pde"], 1.0)
         self.assertEqual(paper["loss"]["lambda_bc"], 1.0)
-        self.assertNotIn("lambda_density", paper["loss"])
+        self.assertEqual(paper["loss"]["lambda_density"], 0.1)
+        self.assertEqual(paper["loss"]["density_region_channel"], 2)
         self.assertEqual(paper["loss"]["d_range"], [0.02, 1.5])
         self.assertEqual(paper["loss"]["rho_range"], [0.002, 0.2])
         self.assertEqual(paper["loss"]["sample_parameters"], "voxel")
@@ -47,14 +48,14 @@ class PaperReproductionConfigTest(unittest.TestCase):
         self.assertEqual(baseline["loss"]["lambda_pde"], 0.0)
         self.assertEqual(baseline["loss"]["lambda_bc"], 0.0)
 
-    def test_training_code_keeps_paper_default_dice_and_no_extra_density_loss(self):
+    def test_training_code_keeps_paper_default_dice_and_density_coupling(self):
         train_code = (ROOT / "src" / "train3d.py").read_text(encoding="utf-8")
         loss_code = (ROOT / "src" / "losses.py").read_text(encoding="utf-8")
         paper = load_yaml("configs/paper3d_unet.yaml")
 
         self.assertEqual(paper["loss"]["segmentation_loss"], "dice")
-        self.assertNotIn("lambda_density", train_code)
-        self.assertNotIn("lambda_density", loss_code)
+        self.assertIn("lambda_density", train_code)
+        self.assertIn("DensityCouplingLoss", loss_code)
         self.assertIn("build_segmentation_loss", train_code)
         self.assertIn('loss_cfg.get("segmentation_loss", "dice")', train_code)
 

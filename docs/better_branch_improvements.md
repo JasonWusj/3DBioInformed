@@ -33,6 +33,8 @@ loss:
   lambda_gaussian_amplitude: 1.0e-3
 ```
 
+同时恢复 `DensityCouplingLoss`：它把 density estimator 输出的 `u_hat` 和肿瘤区域 mask 对齐，避免 PDE/BC 只作用在一个完全无监督的隐式密度场上。这个改动用于保留你观察到的 density 有效性，而不是移除 density 分支。
+
 模型结构是：
 
 ```text

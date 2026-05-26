@@ -163,7 +163,7 @@ def dice_per_region(logits, target, threshold=0.5):
 
 def train_one_epoch(model, loader, criterion, gaussian_regularization, optimizer, scaler, device, use_amp, cfg, epoch):
     model.train()
-    losses = {"seg": 0.0, "pde": 0.0, "bc": 0.0, "gaussian": 0.0, "total": 0.0}
+    losses = {"seg": 0.0, "pde": 0.0, "bc": 0.0, "density": 0.0, "gaussian": 0.0, "total": 0.0}
     num_batches = 0
     start = time.time()
     use_biophysics = cfg["loss"].get("use_biophysics", True)
@@ -196,6 +196,7 @@ def train_one_epoch(model, loader, criterion, gaussian_regularization, optimizer
                     "seg": float(loss.detach().cpu()),
                     "pde": 0.0,
                     "bc": 0.0,
+                    "density": 0.0,
                     "gaussian": 0.0,
                     "total": float(loss.detach().cpu()),
                 }
@@ -221,6 +222,7 @@ def train_one_epoch(model, loader, criterion, gaussian_regularization, optimizer
                 f"[Epoch {epoch + 1} Batch {batch_idx + 1}/{len(loader)}] "
                 f"total={loss_dict['total']:.4f} seg={loss_dict['seg']:.4f} "
                 f"pde={loss_dict['pde']:.6f} bc={loss_dict['bc']:.6f} "
+                f"density={loss_dict['density']:.6f} "
                 f"gaussian={loss_dict['gaussian']:.6f}"
             )
 
@@ -303,6 +305,8 @@ def main():
             rho_range=loss_cfg["rho_range"],
             sample_parameters=loss_cfg.get("sample_parameters", "voxel"),
             segmentation_loss=segmentation_loss,
+            lambda_density=loss_cfg.get("lambda_density", 0.0),
+            density_region_channel=loss_cfg.get("density_region_channel", 2),
         ).to(device)
     else:
         criterion = segmentation_loss.to(device)
@@ -317,7 +321,7 @@ def main():
     best_dice = -1.0
     with open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(["epoch", "train_total", "train_seg_loss", "train_pde", "train_bc", "train_gaussian", "val_dice_loss", "val_mean_dice", "lr", "epoch_time_s"])
+        writer.writerow(["epoch", "train_total", "train_seg_loss", "train_pde", "train_bc", "train_density", "train_gaussian", "val_dice_loss", "val_mean_dice", "lr", "epoch_time_s"])
 
         for epoch in range(cfg["training"]["epochs"]):
             train_losses, epoch_time = train_one_epoch(model, train_loader, criterion, gaussian_regularization, optimizer, scaler, device, use_amp, cfg, epoch)
@@ -331,6 +335,7 @@ def main():
                 f"{train_losses['seg']:.6f}",
                 f"{train_losses['pde']:.6f}",
                 f"{train_losses['bc']:.6f}",
+                f"{train_losses['density']:.6f}",
                 f"{train_losses['gaussian']:.6f}",
                 f"{val_dice_loss:.6f}",
                 f"{val_mean_dice:.6f}",

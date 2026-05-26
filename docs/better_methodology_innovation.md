@@ -10,6 +10,8 @@
 
 因此，better UNet 实验在保持原始 UNet backbone 和 biophysics branch 的基础上，加入了 Gaussian implicit segmentation refinement branch 和结构感知分割损失。
 
+根据当前实验观察，取消 paper3d 中的 density/PDE 路径后效果不好，甚至可能低于 baseline。因此本分支把 density 视为必须保留的核心组件，并恢复 `DensityCouplingLoss`：用肿瘤区域 mask 约束 `u_hat`，让 density estimator 学到和分割目标一致的隐式肿瘤密度场。
+
 ## 方法
 
 新配置文件：

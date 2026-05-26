@@ -79,6 +79,27 @@ class GaussianRefinementRegularization(nn.Module):
         return self.lambda_sigma * sigma_penalty + self.lambda_amplitude * amplitude_penalty
 
 
+class DensityCouplingLoss(nn.Module):
+    def __init__(self, region_channel=2, smooth=1.0):
+        super().__init__()
+        self.region_channel = int(region_channel)
+        self.smooth = float(smooth)
+
+    def forward(self, u_hat, target):
+        density_target = target[:, self.region_channel : self.region_channel + 1].float()
+        if density_target.shape[2:] != u_hat.shape[2:]:
+            density_target = F.interpolate(density_target, size=u_hat.shape[2:], mode="trilinear", align_corners=False)
+        density_target = density_target.clamp(0.0, 1.0)
+        u_hat = u_hat.clamp(1.0e-6, 1.0 - 1.0e-6)
+
+        dims = tuple(range(2, u_hat.ndim))
+        intersection = (u_hat * density_target).sum(dim=dims)
+        denominator = u_hat.sum(dim=dims) + density_target.sum(dim=dims)
+        dice = 1.0 - ((2.0 * intersection + self.smooth) / (denominator + self.smooth)).mean()
+        bce = F.binary_cross_entropy(u_hat, density_target)
+        return dice + bce
+
+
 class FocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0):
         super().__init__()
@@ -186,22 +207,28 @@ class BiophysicsInformedLoss3D(nn.Module):
         rho_range=(0.002, 0.2),
         sample_parameters="voxel",
         segmentation_loss=None,
+        lambda_density=0.0,
+        density_region_channel=2,
     ):
         super().__init__()
         self.segmentation_loss = segmentation_loss if segmentation_loss is not None else DiceLoss()
         self.pde_loss = PDELoss3D(d_range, rho_range, sample_parameters)
         self.bc_loss = BoundaryConditionLoss3D()
+        self.density_loss = DensityCouplingLoss(region_channel=density_region_channel)
         self.lambda_pde = lambda_pde
         self.lambda_bc = lambda_bc
+        self.lambda_density = lambda_density
 
     def forward(self, logits, target, u_hat, t_tensor):
         seg = self.segmentation_loss(logits, target)
         pde = self.pde_loss(u_hat, t_tensor)
         bc = self.bc_loss(u_hat)
-        total = seg + self.lambda_pde * pde + self.lambda_bc * bc
+        density = self.density_loss(u_hat, target)
+        total = seg + self.lambda_pde * pde + self.lambda_bc * bc + self.lambda_density * density
         return total, {
             "seg": float(seg.detach().cpu()),
             "pde": float(pde.detach().cpu()),
             "bc": float(bc.detach().cpu()),
+            "density": float(density.detach().cpu()),
             "total": float(total.detach().cpu()),
         }
