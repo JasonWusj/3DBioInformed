@@ -19,7 +19,15 @@ from src.data import (
     get_case_ids_from_preprocessed,
     split_cases,
 )
-from src.losses import BiophysicsInformedLoss3D, DiceLoss, DiceWithBCELoss, FocalLoss, JaccardLoss
+from src.losses import (
+    BiophysicsInformedLoss3D,
+    DiceLoss,
+    DiceWithBCELoss,
+    FocalLoss,
+    GaussianRefinementRegularization,
+    JaccardLoss,
+    StructureAwareDiceBCELoss,
+)
 from src.model import BiophysicsSegModel3D, StandardSegModel3D
 
 
@@ -96,12 +104,22 @@ def build_datasets(cfg):
     return train_dataset, val_dataset, train_ids, val_ids, test_ids
 
 
-def build_segmentation_loss(name):
-    name = name.lower()
+def build_segmentation_loss(loss_cfg):
+    if isinstance(loss_cfg, str):
+        name = loss_cfg.lower()
+        loss_cfg = {}
+    else:
+        name = loss_cfg.get("segmentation_loss", "dice").lower()
     if name == "dice":
         return DiceLoss()
     if name == "dice_ce":
         return DiceWithBCELoss()
+    if name == "structure_aware_dice_ce":
+        return StructureAwareDiceBCELoss(
+            lambda_hierarchy=loss_cfg.get("lambda_hierarchy", 0.2),
+            lambda_boundary=loss_cfg.get("lambda_boundary", 0.5),
+            boundary_width=loss_cfg.get("boundary_width", 1),
+        )
     if name == "focal":
         return FocalLoss()
     if name == "jaccard":
@@ -143,9 +161,9 @@ def dice_per_region(logits, target, threshold=0.5):
     return scores
 
 
-def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp, cfg, epoch):
+def train_one_epoch(model, loader, criterion, gaussian_regularization, optimizer, scaler, device, use_amp, cfg, epoch):
     model.train()
-    losses = {"seg": 0.0, "pde": 0.0, "bc": 0.0, "total": 0.0}
+    losses = {"seg": 0.0, "pde": 0.0, "bc": 0.0, "gaussian": 0.0, "total": 0.0}
     num_batches = 0
     start = time.time()
     use_biophysics = cfg["loss"].get("use_biophysics", True)
@@ -157,8 +175,20 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
 
         with autocast(device_type=device.type, enabled=use_amp):
             if use_biophysics:
-                logits, u_hat, t_tensor = model(images, return_density=True)
+                outputs = model(images, return_density=True)
+                gaussian_aux = None
+                if len(outputs) == 4:
+                    logits, u_hat, t_tensor, gaussian_aux = outputs
+                else:
+                    logits, u_hat, t_tensor = outputs
                 loss, loss_dict = criterion(logits, targets, u_hat, t_tensor)
+                if gaussian_regularization is not None and gaussian_aux is not None:
+                    gaussian_loss = gaussian_regularization(gaussian_aux)
+                    loss = loss + gaussian_loss
+                    loss_dict["gaussian"] = float(gaussian_loss.detach().cpu())
+                    loss_dict["total"] = float(loss.detach().cpu())
+                else:
+                    loss_dict["gaussian"] = 0.0
             else:
                 logits = model(images, return_density=False)
                 loss = criterion(logits, targets)
@@ -166,6 +196,7 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
                     "seg": float(loss.detach().cpu()),
                     "pde": 0.0,
                     "bc": 0.0,
+                    "gaussian": 0.0,
                     "total": float(loss.detach().cpu()),
                 }
 
@@ -189,7 +220,8 @@ def train_one_epoch(model, loader, criterion, optimizer, scaler, device, use_amp
             log(
                 f"[Epoch {epoch + 1} Batch {batch_idx + 1}/{len(loader)}] "
                 f"total={loss_dict['total']:.4f} seg={loss_dict['seg']:.4f} "
-                f"pde={loss_dict['pde']:.6f} bc={loss_dict['bc']:.6f}"
+                f"pde={loss_dict['pde']:.6f} bc={loss_dict['bc']:.6f} "
+                f"gaussian={loss_dict['gaussian']:.6f}"
             )
 
     for key in losses:
@@ -256,7 +288,13 @@ def main():
     scaler = GradScaler(enabled=use_amp)
 
     loss_cfg = cfg["loss"]
-    segmentation_loss = build_segmentation_loss(loss_cfg.get("segmentation_loss", "dice"))
+    segmentation_loss = build_segmentation_loss(loss_cfg)
+    gaussian_regularization = None
+    if cfg["model"].get("gaussian_refinement", {}).get("enabled", False):
+        gaussian_regularization = GaussianRefinementRegularization(
+            lambda_sigma=loss_cfg.get("lambda_gaussian_sigma", 1.0e-4),
+            lambda_amplitude=loss_cfg.get("lambda_gaussian_amplitude", 1.0e-3),
+        ).to(device)
     if loss_cfg.get("use_biophysics", True):
         criterion = BiophysicsInformedLoss3D(
             lambda_pde=loss_cfg["lambda_pde"],
@@ -279,10 +317,10 @@ def main():
     best_dice = -1.0
     with open(csv_path, "w", newline="", encoding="utf-8") as csv_file:
         writer = csv.writer(csv_file)
-        writer.writerow(["epoch", "train_total", "train_seg_loss", "train_pde", "train_bc", "val_dice_loss", "val_mean_dice", "lr", "epoch_time_s"])
+        writer.writerow(["epoch", "train_total", "train_seg_loss", "train_pde", "train_bc", "train_gaussian", "val_dice_loss", "val_mean_dice", "lr", "epoch_time_s"])
 
         for epoch in range(cfg["training"]["epochs"]):
-            train_losses, epoch_time = train_one_epoch(model, train_loader, criterion, optimizer, scaler, device, use_amp, cfg, epoch)
+            train_losses, epoch_time = train_one_epoch(model, train_loader, criterion, gaussian_regularization, optimizer, scaler, device, use_amp, cfg, epoch)
             val_dice_loss, val_mean_dice = validate(model, val_loader, dice_loss, device, use_amp)
             scheduler.step()
             lr = optimizer.param_groups[0]["lr"]
@@ -293,6 +331,7 @@ def main():
                 f"{train_losses['seg']:.6f}",
                 f"{train_losses['pde']:.6f}",
                 f"{train_losses['bc']:.6f}",
+                f"{train_losses['gaussian']:.6f}",
                 f"{val_dice_loss:.6f}",
                 f"{val_mean_dice:.6f}",
                 f"{lr:.8f}",

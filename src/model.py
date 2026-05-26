@@ -126,6 +126,82 @@ class DensityEstimator3D(nn.Module):
         return u_hat, t_tensor
 
 
+class GaussianSegRefinementHead3D(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        num_classes,
+        num_gaussians=48,
+        hidden_dim=128,
+        min_sigma=0.03,
+        max_sigma=0.5,
+        alpha_init=0.2,
+    ):
+        super().__init__()
+        self.num_classes = int(num_classes)
+        self.foreground_classes = self.num_classes - 1
+        self.num_gaussians = int(num_gaussians)
+        self.min_sigma = float(min_sigma)
+        self.max_sigma = float(max_sigma)
+
+        out_dim = self.foreground_classes * self.num_gaussians * 7
+        self.parameter_head = nn.Sequential(
+            nn.AdaptiveAvgPool3d(1),
+            nn.Flatten(),
+            nn.Linear(in_channels, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, out_dim),
+        )
+        self.refinement_scale = nn.Parameter(torch.tensor(float(alpha_init)))
+
+    @staticmethod
+    def _coordinate_grid(spatial_size, device, dtype):
+        depth, height, width = spatial_size
+        z = torch.linspace(-1.0, 1.0, depth, device=device, dtype=dtype)
+        y = torch.linspace(-1.0, 1.0, height, device=device, dtype=dtype)
+        x = torch.linspace(-1.0, 1.0, width, device=device, dtype=dtype)
+        zz, yy, xx = torch.meshgrid(z, y, x, indexing="ij")
+        return torch.stack([zz, yy, xx], dim=0)
+
+    def _decode_parameters(self, features):
+        batch_size = features.shape[0]
+        raw = self.parameter_head(features)
+        raw = raw.view(batch_size, self.foreground_classes, self.num_gaussians, 7)
+
+        mu = torch.tanh(raw[..., :3])
+        sigma = self.min_sigma + (self.max_sigma - self.min_sigma) * torch.sigmoid(raw[..., 3:6])
+        amplitude = raw[..., 6]
+        return mu, sigma, amplitude
+
+    def forward(self, base_logits, features):
+        mu, sigma, amplitude = self._decode_parameters(features)
+        grid = self._coordinate_grid(base_logits.shape[2:], base_logits.device, base_logits.dtype)
+        foreground_logits = torch.zeros(
+            base_logits.shape[0],
+            self.foreground_classes,
+            *base_logits.shape[2:],
+            device=base_logits.device,
+            dtype=base_logits.dtype,
+        )
+
+        for idx in range(self.num_gaussians):
+            center = mu[:, :, idx].view(base_logits.shape[0], self.foreground_classes, 3, 1, 1, 1)
+            scale = sigma[:, :, idx].view(base_logits.shape[0], self.foreground_classes, 3, 1, 1, 1)
+            weight = amplitude[:, :, idx].view(base_logits.shape[0], self.foreground_classes, 1, 1, 1)
+            distance = ((grid.unsqueeze(0).unsqueeze(0) - center) / scale).square().sum(dim=2)
+            foreground_logits = foreground_logits + weight * torch.exp(-0.5 * distance)
+
+        gaussian_logits = torch.zeros_like(base_logits)
+        gaussian_logits[:, 1:] = foreground_logits
+        refined_logits = base_logits + self.refinement_scale * gaussian_logits
+        return refined_logits, {
+            "mu": mu,
+            "sigma": sigma,
+            "amplitude": amplitude,
+            "scale": self.refinement_scale,
+        }
+
+
 class BiophysicsSegModel3D(nn.Module):
     def __init__(self, cfg):
         super().__init__()
@@ -144,13 +220,33 @@ class BiophysicsSegModel3D(nn.Module):
             feature_size=model_cfg["density_estimator"]["feature_size"],
             activation=model_cfg["density_estimator"].get("activation", "sine"),
         )
+        gaussian_cfg = model_cfg.get("gaussian_refinement", {})
+        self.gaussian_refinement = None
+        if gaussian_cfg.get("enabled", False):
+            self.gaussian_refinement = GaussianSegRefinementHead3D(
+                in_channels=self.unet.bottleneck_channels,
+                num_classes=data_cfg["num_classes"],
+                num_gaussians=gaussian_cfg.get("num_gaussians", 48),
+                hidden_dim=gaussian_cfg.get("hidden_dim", 128),
+                min_sigma=gaussian_cfg.get("min_sigma", 0.03),
+                max_sigma=gaussian_cfg.get("max_sigma", 0.5),
+                alpha_init=gaussian_cfg.get("alpha_init", 0.2),
+            )
+
+    def _refine_logits(self, logits, features):
+        if self.gaussian_refinement is None:
+            return logits, None
+        return self.gaussian_refinement(logits, features)
 
     def forward(self, x, return_density=True):
-        if not return_density:
-            return self.unet(x, return_features=False)
-
         logits, features = self.unet(x, return_features=True)
+        logits, gaussian_aux = self._refine_logits(logits, features)
+        if not return_density:
+            return logits
+
         u_hat, t_tensor = self.density_estimator(features)
+        if gaussian_aux is not None:
+            return logits, u_hat, t_tensor, gaussian_aux
         return logits, u_hat, t_tensor
 
 
@@ -164,6 +260,21 @@ class StandardSegModel3D(nn.Module):
             out_channels=data_cfg["num_classes"],
             features=model_cfg["features"],
         )
+        gaussian_cfg = model_cfg.get("gaussian_refinement", {})
+        self.gaussian_refinement = None
+        if gaussian_cfg.get("enabled", False):
+            self.gaussian_refinement = GaussianSegRefinementHead3D(
+                in_channels=self.unet.bottleneck_channels,
+                num_classes=data_cfg["num_classes"],
+                num_gaussians=gaussian_cfg.get("num_gaussians", 48),
+                hidden_dim=gaussian_cfg.get("hidden_dim", 128),
+                min_sigma=gaussian_cfg.get("min_sigma", 0.03),
+                max_sigma=gaussian_cfg.get("max_sigma", 0.5),
+                alpha_init=gaussian_cfg.get("alpha_init", 0.2),
+            )
 
     def forward(self, x, return_density=False):
-        return self.unet(x, return_features=False)
+        logits, features = self.unet(x, return_features=True)
+        if self.gaussian_refinement is not None:
+            logits, _ = self.gaussian_refinement(logits, features)
+        return logits

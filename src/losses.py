@@ -31,6 +31,54 @@ class DiceWithBCELoss(nn.Module):
         return self.dice(logits, target) + self.bce(logits[:, 1:], target[:, 1:])
 
 
+class HierarchyConsistencyLoss(nn.Module):
+    def forward(self, logits, target):
+        probs = torch.sigmoid(logits)
+        tc = probs[:, 1]
+        wt = probs[:, 2]
+        et = probs[:, 3]
+        return F.relu(et - tc).mean() + F.relu(tc - wt).mean()
+
+
+class StructureAwareDiceBCELoss(nn.Module):
+    def __init__(self, lambda_hierarchy=0.2, lambda_boundary=0.5, boundary_width=1):
+        super().__init__()
+        self.dice = DiceLoss()
+        self.hierarchy = HierarchyConsistencyLoss()
+        self.lambda_hierarchy = float(lambda_hierarchy)
+        self.lambda_boundary = float(lambda_boundary)
+        self.boundary_width = int(boundary_width)
+
+    def _boundary_weights(self, target):
+        target = target[:, 1:].float()
+        kernel_size = 2 * self.boundary_width + 1
+        dilation = F.max_pool3d(target, kernel_size=kernel_size, stride=1, padding=self.boundary_width)
+        erosion = 1.0 - F.max_pool3d(1.0 - target, kernel_size=kernel_size, stride=1, padding=self.boundary_width)
+        boundary = (dilation - erosion).clamp(0.0, 1.0)
+        return 1.0 + self.lambda_boundary * boundary
+
+    def forward(self, logits, target):
+        dice = self.dice(logits, target)
+        bce = F.binary_cross_entropy_with_logits(logits[:, 1:], target[:, 1:], reduction="none")
+        weighted_bce = (bce * self._boundary_weights(target)).mean()
+        hierarchy = self.hierarchy(logits, target)
+        return dice + weighted_bce + self.lambda_hierarchy * hierarchy
+
+
+class GaussianRefinementRegularization(nn.Module):
+    def __init__(self, lambda_sigma=1.0e-4, lambda_amplitude=1.0e-3):
+        super().__init__()
+        self.lambda_sigma = float(lambda_sigma)
+        self.lambda_amplitude = float(lambda_amplitude)
+
+    def forward(self, gaussian_aux):
+        sigma = gaussian_aux["sigma"]
+        amplitude = gaussian_aux["amplitude"]
+        sigma_penalty = (1.0 / (sigma.square() + 1.0e-6)).mean()
+        amplitude_penalty = amplitude.abs().mean()
+        return self.lambda_sigma * sigma_penalty + self.lambda_amplitude * amplitude_penalty
+
+
 class FocalLoss(nn.Module):
     def __init__(self, alpha=0.25, gamma=2.0):
         super().__init__()

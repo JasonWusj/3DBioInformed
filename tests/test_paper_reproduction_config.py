@@ -47,11 +47,12 @@ class PaperReproductionConfigTest(unittest.TestCase):
         self.assertEqual(baseline["loss"]["lambda_pde"], 0.0)
         self.assertEqual(baseline["loss"]["lambda_bc"], 0.0)
 
-    def test_training_code_uses_single_dice_loss_and_no_extra_density_loss(self):
+    def test_training_code_keeps_paper_default_dice_and_no_extra_density_loss(self):
         train_code = (ROOT / "src" / "train3d.py").read_text(encoding="utf-8")
         loss_code = (ROOT / "src" / "losses.py").read_text(encoding="utf-8")
+        paper = load_yaml("configs/paper3d_unet.yaml")
 
-        self.assertNotIn("DiceBCELoss", train_code)
+        self.assertEqual(paper["loss"]["segmentation_loss"], "dice")
         self.assertNotIn("lambda_density", train_code)
         self.assertNotIn("lambda_density", loss_code)
         self.assertIn("build_segmentation_loss", train_code)
